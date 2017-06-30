@@ -1,3 +1,49 @@
+Jet changes from the original rpi_ws281x
+========================================
+
+This is a crude, but working implementation of a UDP neopixel server for this version of AlexaPi https://github.com/jetty840/AlexaPi,
+based on rpi_ws281x, tested on Raspberry Pi 3
+
+It's asynchronous, and provides PWM, PCM and SPI techniques.  It's recommended to use PCM, if using audio output on the Raspberry Pi.
+If using I2S for audio output, then don't use PCM
+
+Installing
+==========
+
+cd /opt
+git clone https://github.com/jetty840/rpi_ws281x
+cd rpi_ws281x
+Edit main.c for the WIDTH of your neopixel array.  You will need to make changes if you have a Height different than 1.
+All animation code can be found in animations.c
+scons
+
+Edit NeoUdp.service, and change the parameters to ws281x_udp_server to match your requirements:
+
+/opt/rpi_ws281x/ws281x_udp_server --strip grb --gpio 21 --port 9999 --clear
+
+Note: port should match the one specified in /etc/opt/AlexaPi/config.yaml and gpio 21 is the pcm port on Pi 3
+
+./install.sh
+
+systemctl start NeoUdp.service
+systemctl status NeoUdp.service   (to check it started)
+
+// If you need to manually run, stop the service and:
+/opt/rpi_ws281x/ws281x_udp_server --strip grb --gpio 21 --port 9999 --clear
+
+Neopixel Wiring
+===============
+
+Connections as follows:
+    Example: https://www.adafruit.com/product/1463
+    - +3.3V Neopixel +
+        - if supplying from Pi, verifying the onboard 3.3V can handle the current load from the neopixels
+        - if powering from 5V, you will need logic converter for the Data line
+    - GND   Neopixel -
+    - Data  Gpio 21
+
+--------
+
 rpi_ws281x
 ==========
 

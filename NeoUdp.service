@@ -1,0 +1,25 @@
+[Unit]
+Description=Neopixel UDP server for AlexaPi
+Documentation=https://github.com/jetty840/rpi_ws281x
+
+# Having network in "Wants" is intentional, because we want AlexaPi to start even when network is not available.
+# For example if there is a power loss and the device reboots, but the internet connection is not fixed yet
+# and there are timers / alarms, we want to handle them.
+Wants=network.target network-online.target
+Requires=sound.target
+After=network.target network-online.target sound.target
+
+[Service]
+Type=simple
+ExecStart=/opt/rpi_ws281x/ws281x_udp_server --strip grb --gpio 21 --port 9999 --clear
+
+User=root
+Group=root
+
+ProtectHome=true
+RuntimeDirectory=NeoUDP
+RuntimeDirectoryMode=0770
+WorkingDirectory=/run/NeoUDP
+
+[Install]
+WantedBy=default.target

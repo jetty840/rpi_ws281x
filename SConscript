@@ -40,6 +40,7 @@ lib_srcs = Split('''
     pcm.c
     dma.c
     rpihw.c
+    animations.c
 ''')
 
 version_hdr = tools_env.Version('version')
@@ -49,7 +50,7 @@ tools_env['LIBS'].append(ws2811_lib)
 # Shared library (if required)
 ws2811_slib = tools_env.SharedLibrary('libws2811', lib_srcs)
 
-# Test Program
+# Server Program
 srcs = Split('''
     main.c
 ''')
@@ -58,6 +59,6 @@ objs = []
 for src in srcs:
    objs.append(tools_env.Object(src))
 
-test = tools_env.Program('test', objs + tools_env['LIBS'])
+ws281x_udp_server = tools_env.Program('ws281x_udp_server', objs + tools_env['LIBS'])
 
-Default([test, ws2811_lib])
+Default([ws281x_udp_server, ws2811_lib])

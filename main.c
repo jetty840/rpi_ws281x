@@ -42,12 +42,18 @@ static char VERSION[] = "XX.YY.ZZ";
 #include <signal.h>
 #include <stdarg.h>
 #include <getopt.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <errno.h>
 
 
 #include "clk.h"
 #include "gpio.h"
 #include "dma.h"
 #include "pwm.h"
+#include "animations.h"
 #include "version.h"
 
 #include "ws2811.h"
@@ -63,15 +69,23 @@ static char VERSION[] = "XX.YY.ZZ";
 #define STRIP_TYPE              WS2811_STRIP_GBR		// WS2812/SK6812RGB integrated chip+leds
 //#define STRIP_TYPE            SK6812_STRIP_RGBW		// SK6812RGBW (NOT SK6812RGB)
 
-#define WIDTH                   8
-#define HEIGHT                  8
+#define WIDTH                   12
+#define HEIGHT                  1
 #define LED_COUNT               (WIDTH * HEIGHT)
+
+#define PORT 9999
 
 int width = WIDTH;
 int height = HEIGHT;
 int led_count = LED_COUNT;
 
 int clear_on_exit = 0;
+
+int port = PORT;
+
+#define BUFSIZE 1024
+
+
 
 ws2811_t ledstring =
 {
@@ -99,94 +113,7 @@ ws2811_t ledstring =
 
 ws2811_led_t *matrix;
 
-static uint8_t running = 1;
-
-void matrix_render(void)
-{
-    int x, y;
-
-    for (x = 0; x < width; x++)
-    {
-        for (y = 0; y < height; y++)
-        {
-            ledstring.channel[0].leds[(y * width) + x] = matrix[y * width + x];
-        }
-    }
-}
-
-void matrix_raise(void)
-{
-    int x, y;
-
-    for (y = 0; y < (height - 1); y++)
-    {
-        for (x = 0; x < width; x++)
-        {
-            // This is for the 8x8 Pimoroni Unicorn-HAT where the LEDS in subsequent
-            // rows are arranged in opposite directions
-            matrix[y * width + x] = matrix[(y + 1)*width + width - x - 1];
-        }
-    }
-}
-
-void matrix_clear(void)
-{
-    int x, y;
-
-    for (y = 0; y < (height ); y++)
-    {
-        for (x = 0; x < width; x++)
-        {
-            matrix[y * width + x] = 0;
-        }
-    }
-}
-
-int dotspos[] = { 0, 1, 2, 3, 4, 5, 6, 7 };
-ws2811_led_t dotcolors[] =
-{
-    0x00200000,  // red
-    0x00201000,  // orange
-    0x00202000,  // yellow
-    0x00002000,  // green
-    0x00002020,  // lightblue
-    0x00000020,  // blue
-    0x00100010,  // purple
-    0x00200010,  // pink
-};
-
-ws2811_led_t dotcolors_rgbw[] =
-{
-    0x00200000,  // red
-    0x10200000,  // red + W
-    0x00002000,  // green
-    0x10002000,  // green + W
-    0x00000020,  // blue
-    0x10000020,  // blue + W
-    0x00101010,  // white
-    0x10101010,  // white + W
-
-};
-
-void matrix_bottom(void)
-{
-    int i;
-
-    for (i = 0; i < ARRAY_SIZE(dotspos); i++)
-    {
-        dotspos[i]++;
-        if (dotspos[i] > (width - 1))
-        {
-            dotspos[i] = 0;
-        }
-
-        if (ledstring.channel[0].strip_type == SK6812_STRIP_RGBW) {
-            matrix[dotspos[i] + (height - 1) * width] = dotcolors_rgbw[i];
-        } else {
-            matrix[dotspos[i] + (height - 1) * width] = dotcolors[i];
-        }
-    }
-}
+volatile static uint8_t running = 1;
 
 static void ctrl_c_handler(int signum)
 {
@@ -221,6 +148,7 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
 		{"height", required_argument, 0, 'y'},
 		{"width", required_argument, 0, 'x'},
 		{"version", no_argument, 0, 'v'},
+		{"port", required_argument, 0, 'p'},
 		{0, 0, 0, 0}
 	};
 
@@ -228,7 +156,7 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
 	{
 
 		index = 0;
-		c = getopt_long(argc, argv, "cd:g:his:vx:y:", longopts, &index);
+		c = getopt_long(argc, argv, "cd:g:hip:s:vx:y:", longopts, &index);
 
 		if (c == -1)
 			break;
@@ -250,6 +178,7 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
 				"-g (--gpio)    - GPIO to use\n"
 				"                 If omitted, default is 18 (PWM0)\n"
 				"-i (--invert)  - invert pin output (pulse LOW)\n"
+				"-p (--port)    - udp port to listen on (default 9999)\n"
 				"-c (--clear)   - clear matrix on exit.\n"
 				"-v (--version) - version information\n"
 				, argv[0]);
@@ -293,7 +222,18 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
 				if (dma < 14) {
 					ws2811->dmanum = dma;
 				} else {
-					printf ("invalid dma %d\n", dma);
+					fprintf (stderr, "invalid dma %d\n", dma);
+					exit (-1);
+				}
+			}
+			break;
+
+		case 'p':
+			if (optarg) {
+				port = atoi(optarg);
+				if ( port < 1 )
+				{
+					fprintf (stderr, "invalid port %d\n", port);
 					exit (-1);
 				}
 			}
@@ -305,7 +245,7 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
 				if (height > 0) {
 					ws2811->channel[0].count = height * width;
 				} else {
-					printf ("invalid height %d\n", height);
+					fprintf (stderr, "invalid height %d\n", height);
 					exit (-1);
 				}
 			}
@@ -317,7 +257,7 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
 				if (width > 0) {
 					ws2811->channel[0].count = height * width;
 				} else {
-					printf ("invalid width %d\n", width);
+					fprintf (stderr, "invalid width %d\n", width);
 					exit (-1);
 				}
 			}
@@ -350,7 +290,7 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
 					ws2811->channel[0].strip_type = SK6812_STRIP_GRBW;
 				}
 				else {
-					printf ("invalid strip %s\n", optarg);
+					fprintf (stderr, "invalid strip %s\n", optarg);
 					exit (-1);
 				}
 			}
@@ -371,15 +311,187 @@ void parseargs(int argc, char **argv, ws2811_t *ws2811)
 }
 
 
+
+void callInitAnimationFunction(int animationId)
+{
+    // Call the init function
+    if ( animations[animationId].fps == 0 )	sleepTime = 0UL;
+    else					sleepTime = 1000000UL / (unsigned long)animations[animationId].fps;
+
+    if ( animations[animationId].initFunc )	animations[animationId].initFunc(animations[animationId].param1, animations[animationId].param2, animations[animationId].param3);
+}
+
+
+
+void callIterateAnimationFunction(int animationId)
+{
+	// Call the iterate function
+	if ( animations[animationId].iterateFunc )	animations[animationId].iterateFunc(animations[animationId].param1, animations[animationId].param2, animations[animationId].param3);
+}
+
+
+
+// Starts up the udp server, returns the socket file description on success, otherwise -1
+
+int start_udp_server(void)
+{
+    int sockfd;
+    int optval;
+    struct sockaddr_in serveraddr;
+    struct timeval read_timeout;
+
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0 );
+    if ( sockfd < 0 )
+    {
+	perror("unable to create socket");
+	return -1;
+    }
+
+    // So we can restart the server without waiting
+    optval = 1;
+    if ( setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (const void *)&optval, sizeof(optval)) )
+    {
+	perror("unable to set socket option SO_REUSEADDR");
+	close(sockfd);
+	return -1;
+    }
+
+    // Set a timeout of 1uS so that recvfrom becomes non blocking
+    read_timeout.tv_sec = 0;
+    read_timeout.tv_usec = 1;
+    if ( setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &read_timeout, sizeof(read_timeout)) )
+    {
+	perror("unable to set socket option SO_RCVTIMEO");
+	close(sockfd);
+	return -1;
+    }
+
+    // bind a listening port to the socket
+    bzero((char *) &serveraddr, sizeof(serveraddr));
+    serveraddr.sin_family = AF_INET;
+    serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    serveraddr.sin_port = htons((unsigned short)port); 
+
+    if (bind(sockfd, (struct sockaddr *) &serveraddr, sizeof(serveraddr)) < 0) 
+    {
+	perror("unable to bind to socket");
+	close(sockfd);
+	return -1;
+    }
+
+    return sockfd;
+}
+
+
+
+// Attempts to receive a packet on the udp socket
+// Provide socket fd, buffer and size of buffer to put received packet in
+// Return > 0 = number of bytes received
+// Return == 0 = Empty transmission or timed out
+// Return < 0 = error
+
+int receive_udp_packet(int sockfd, char *buf, size_t bufSize)
+{
+	int n;
+
+	n = recvfrom(sockfd, buf, bufSize, 0, NULL, NULL);
+	if ( n < 0 && errno != EAGAIN )
+	{
+		perror("recvfrom");
+		return -1;
+	}
+
+	// This is for the situation where there was no data and we timed out, everything okay,
+	// but the data is zero length
+	if ( n < 0 )	n = 0;
+
+	// Terminate the string
+	buf[n] = '\0';
+
+	return n;
+}
+
+
+
+// Provide an animation name, and it returns the animation Id, returns -1 if not found
+
+int animationIdByName(char *name)
+{
+	int i,t;
+
+	// search for the request
+	for ( i = 0; animations[i].initFunc; i ++ )
+	{
+		for ( t = 0; animations[i].names[t]; t ++ )
+		{
+			if ( strcmp(name, animations[i].names[t]) == 0 )	return i;
+		}
+	}
+
+	return -1;
+}
+
+
+
+
+// Waits for a packet to be received on sockfd, or times out after timeout(uS) if one is not recevied
+// If timeout is 0, then it returns after a maximum of 1 second (depending on if a packet is recevied or not)
+// 
+// Returns -1 on error
+// Returns 0 if no data is recevied during the timeout
+// Returns 1 if data is recevied during the timeout
+
+int wait_for_packet_or_timeout(int sockfd, unsigned long timeout)
+{
+	int n;
+	fd_set rfds;
+	struct timeval tv;
+
+	tv.tv_sec  = ( timeout ) ? 0	   : 1;
+	tv.tv_usec = ( timeout ) ? timeout : 0;
+
+	FD_ZERO(&rfds);
+	FD_SET(sockfd, &rfds);
+
+	n = select(sockfd+1, &rfds, NULL, NULL, &tv);
+
+	if ( n < 0 )	perror("select failed");
+
+	return n;
+}
+
+
+
+int animationRender(void)
+{
+	int i, ret;
+
+	for (i = 0; i < width; i ++ )	ledstring.channel[0].leds[i] = matrix[i];
+
+        if ((ret = ws2811_render(&ledstring)) != WS2811_SUCCESS)
+        {
+		fprintf(stderr, "ws2811_render failed: %s\n", ws2811_get_return_t_str(ret));
+		return -1;
+        }
+
+	return 0;
+}
+		
+
+
 int main(int argc, char *argv[])
 {
+    int sockfd;
     ws2811_return_t ret;
+    int activeAnimation = 1;
+    char buf[BUFSIZE + 1];
 
     sprintf(VERSION, "%d.%d.%d", VERSION_MAJOR, VERSION_MINOR, VERSION_MICRO);
 
     parseargs(argc, argv, &ledstring);
 
     matrix = malloc(sizeof(ws2811_led_t) * width * height);
+    animSetup(matrix, width);
 
     setup_handlers();
 
@@ -389,29 +501,65 @@ int main(int argc, char *argv[])
         return ret;
     }
 
-    while (running)
+    sockfd = start_udp_server();
+    if ( sockfd < 0 )
     {
-        matrix_raise();
-        matrix_bottom();
-        matrix_render();
-
-        if ((ret = ws2811_render(&ledstring)) != WS2811_SUCCESS)
-        {
-            fprintf(stderr, "ws2811_render failed: %s\n", ws2811_get_return_t_str(ret));
-            break;
-        }
-
-        // 15 frames /sec
-        usleep(1000000 / 15);
+        fprintf(stderr, "start_udp_server failed: %d\n", sockfd);
+	return sockfd;
     }
 
-    if (clear_on_exit) {
-	matrix_clear();
-	matrix_render();
-	ws2811_render(&ledstring);
+
+    // Start the default animation, wait 2 seconds and clear
+    activeAnimation = animationIdByName("startupserver");
+    if ( activeAnimation < 0 )
+    {
+	activeAnimation = 0;
+	fprintf(stderr, "Error: unable to find startup server animation\n");
+    }
+    callInitAnimationFunction(activeAnimation);
+    animationRender();
+
+    usleep(2000000);
+
+    activeAnimation = 0;
+    callInitAnimationFunction(activeAnimation);
+    animationRender();
+
+    while (running)
+    {
+	if ( receive_udp_packet(sockfd, buf, BUFSIZE) > 0 )
+	{
+		// Find the animation requested and initialize it
+		activeAnimation = animationIdByName(buf);
+
+		if ( activeAnimation >= 0 )
+		{
+			printf("Received animation change request to: %s(%d)\n", buf, activeAnimation);
+    			callInitAnimationFunction(activeAnimation);
+		}
+		else
+		{
+			fprintf(stderr, "Error: Received unrecognized animation change request: %s\n", buf);
+			activeAnimation = 0;
+		}
+	}	
+
+	wait_for_packet_or_timeout(sockfd, sleepTime);
+
+	if ( sleepTime)	callIterateAnimationFunction(activeAnimation);
+
+	if ( animationRender() < 0 )	break;
+    }
+
+    if (clear_on_exit)
+    {
+    	callInitAnimationFunction(0);
+	animationRender();
     }
 
     ws2811_fini(&ledstring);
+
+    close(sockfd);
 
     printf ("\n");
     return ret;
