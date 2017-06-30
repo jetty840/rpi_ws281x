@@ -11,10 +11,14 @@ Installing
 ==========
 
 cd /opt
+
 git clone https://github.com/jetty840/rpi_ws281x
+
 cd rpi_ws281x
+
 Edit main.c for the WIDTH of your neopixel array.  You will need to make changes if you have a Height different than 1.
 All animation code can be found in animations.c
+
 scons
 
 Edit NeoUdp.service, and change the parameters to ws281x_udp_server to match your requirements:
