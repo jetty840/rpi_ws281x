@@ -34,6 +34,7 @@
 
 
 static int		heartDirection = 1;
+static int		flashing;
 static int		width=1;
 static ws2811_led_t	*matrix;
 
@@ -145,22 +146,49 @@ void animInitFull(int param1, int param2, int param3)
 	}
 }
 
+void animInitFlashing(int param1, int param2, int param3)
+{
+	int x;
+
+	flashing = 1;
+	for (x = 0; x < width; x ++ )
+	{
+		matrix[x] = param1;
+	}
+}
+
+void animIterateFlashing(int param1, int param2, int param3)
+{
+	int x, v;
+
+	flashing ^= 1;
+
+	if (flashing ) v = param1;
+	else	       v = param2;
+
+	for (x = 0; x < width; x ++ )
+	{
+		matrix[x] = v;
+	}
+}
+
 
 
 Animation animations[] =
 {
-	{{"clear", "alexapi_clear",					NULL}, 1,	0,        0,		0,	   &animInitClear,       NULL},		// Clear animation should be the first animation, so it's the default
-	{{"fadetoclear", "alexapi_startup", "alexapi_fadetoclear",	NULL}, 128,	0,        0,		0,	   &animInitFadeToClear, &animIterateFadeToClear},
-	{{"cyan",	  						NULL}, 1,	0x008888, 0,		0,	   &animInitFull,        NULL},
-	{{"red", 	  "alexapi_failure",	 			NULL}, 1,	0x880000, 0,		0,	   &animInitFull,        NULL},
-	{{"green",	  "alexapi_success",	 			NULL}, 1,	0x008800, 0,		0,	   &animInitFull,        NULL},
-	{{"yellow",	  "startupserver",	 			NULL}, 1,	0x888800, 0,		0,	   &animInitFull,        NULL},
-	{{"orbitBlue",	  "alexapi_play", 				NULL}, 15, 	0x000088, 0x006688,	0,	   &animInitOrbit,       &animIterateOrbit},
-	{{"orbitRed",	  						NULL}, 15,	0xFF0000, 0xFF0088,	0,	   &animInitOrbit,       &animIterateOrbit},
+ 	{{"clear", "alexapi_clear",					NULL}, 1,	0,        0,		0,	   &animInitClear,       NULL},		// Clear animation should be the first animation, so it's the default
+ 	{{"fadetoclear", "alexapi_startup", "alexapi_fadetoclear",	NULL}, 128,	0,        0,		0,	   &animInitFadeToClear, &animIterateFadeToClear},
+ 	{{"cyan",	  						NULL}, 1,	0x008888, 0,		0,	   &animInitFull,        NULL},
+ 	{{"red", 	  "alexapi_failure",	 			NULL}, 1,	0x880000, 0,		0,	   &animInitFull,        NULL},
+ 	{{"green",	  "alexapi_success",	 			NULL}, 1,	0x008800, 0,		0,	   &animInitFull,        NULL},
+ 	{{"yellow",	  "startupserver",	 			NULL}, 1,	0x888800, 0,		0,	   &animInitFull,        NULL},
+ 	{{"orbitBlue",	  "alexapi_play", 				NULL}, 15, 	0x000088, 0x006688,	0,	   &animInitOrbit,       &animIterateOrbit},
+ 	{{"orbitRed",	  						NULL}, 15,	0xFF0000, 0xFF0088,	0,	   &animInitOrbit,       &animIterateOrbit},
 	{{"orbitGreen",	  "alexapi_processing",	 			NULL}, 15,	0x008800, 0x008866,	0,	   &animInitOrbit,       &animIterateOrbit},
 	{{"orbitMagenta", 						NULL}, 15,	0x880088, 0x884488,	0,         &animInitOrbit,       &animIterateOrbit},
 	{{"orbitCyan",	  						NULL}, 15,	0x00FFFF, 0x88FFFF,	0,	   &animInitOrbit,       &animIterateOrbit},
 	{{"orbitYellow",  						NULL}, 15,	0xFFFF00, 0xFFFF88,	0,	   &animInitOrbit,       &animIterateOrbit},
 	{{"heartBlue",   "alexapi_recording",	 			NULL}, 15,	0x000044, 0x000088,	0x000004,  &animInitHeart,       &animIterateHeart},
+	{{"redflashing", "reboot",	 				NULL}, 10,	0x880000, 0,		0,	   &animInitFlashing,    &animIterateFlashing},
 	{{								NULL}, 0,	0,	  0,		0,	   NULL,		 NULL}
 };
